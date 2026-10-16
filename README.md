@@ -20,5 +20,11 @@ java -cp ".;..\..\lib\*" WeatherCentralServer 5000
 ## Lancer le client
 
 ```
-javac WeatherClient.java puis java WeatherClient 127.0.0.1 5000
+javac WeatherClient.java
+```
+
+## Puis
+
+```
+java WeatherClient 127.0.0.1 5000
 ```
