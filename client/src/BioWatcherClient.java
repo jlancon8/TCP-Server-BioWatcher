@@ -2,7 +2,7 @@ import java.io.*;
 import java.net.*;
 import java.util.*;
 
-class WeatherClient {
+class BioWatcherClient {
 
   public static void main(String []args) {
 

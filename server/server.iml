@@ -40,5 +40,6 @@
         <SOURCES />
       </library>
     </orderEntry>
+    <orderEntry type="library" name="mongodb-driver-sync-4.10.2" level="application" />
   </component>
 </module>

@@ -6,13 +6,13 @@ Les jars Mongo (`mongodb-driver-sync`, `bson`, `mongodb-driver-core`) sont dans 
 ## Compiler
 
 ```
-javac -cp ".;..\..\lib\*" WeatherCentralServer.java
+javac -cp ".;..\..\lib\*" BioWatcherCentralServer.java
 ```
 
 ## Lancer le serveur
 
 ```
-java -cp ".;..\..\lib\*" WeatherCentralServer 5000
+java -cp ".;..\..\lib\*" BioWatcherCentralServer 5000
 ```
 
 `5000` est le port d'écoute du serveur.
@@ -20,11 +20,11 @@ java -cp ".;..\..\lib\*" WeatherCentralServer 5000
 ## Lancer le client
 
 ```
-javac WeatherClient.java
+javac BioWatcherClient.java
 ```
 
 ## Puis
 
 ```
-java WeatherClient 127.0.0.1 5000
+java BioWatcherClient 127.0.0.1 5000
 ```

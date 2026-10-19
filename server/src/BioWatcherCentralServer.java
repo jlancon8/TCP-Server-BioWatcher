@@ -1,6 +1,6 @@
 import java.io.*;
 
-class WeatherCentralServer {
+class BioWatcherCentralServer {
 
   public static void main(String []args) {
 

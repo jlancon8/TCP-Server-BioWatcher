@@ -23,7 +23,7 @@ public class HttpDataDriver implements DataDriver {
     private String checkError(Document answer) {
         int error = answer.getInteger("error");
         if (error != 0) {
-            return answer.getString("data");
+            return "ERR " + answer.getString("data");
         }
         return null;
     }

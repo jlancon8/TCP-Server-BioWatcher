@@ -57,6 +57,8 @@ class ThreadServer extends Thread {
 				}
 				else if ("STOREANALYSIS".equals(idReq)) {
 					requestStoreAnalysis(reqParts);
+				} else {
+					ps.println("ERR unknown command");
 				}
 			}
 			System.out.println("end of request loop");
@@ -114,4 +116,4 @@ class ThreadServer extends Thread {
 
 }
 
-		
+

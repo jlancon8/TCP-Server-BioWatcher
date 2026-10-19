@@ -3,6 +3,6 @@
   <component name="NewModuleRootManager" inherit-compiler-output="true">
     <exclude-output />
     <orderEntry type="sourceFolder" forTests="false" />
-    <orderEntry type="library" name="mongodb-driver-sync-4.10.2" level="project" />
+    <orderEntry type="library" name="mongodb-driver-sync-4.10.2" level="application" />
   </component>
 </module>

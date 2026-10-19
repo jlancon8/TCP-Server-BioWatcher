@@ -11,7 +11,7 @@ class MainServer  {
 
     public MainServer(int port) throws IOException {
         this.port = port;
-        conn = new ServerSocket(port,1);
+        conn = new ServerSocket(port,2); // backlog is equal to the number of the microcontrollers here so two
         idThread = 1;
         exchanger = new DataExchanger("http://localhost:4567/weatherapi", "mongodb://localhost:27017");
         // need to initializae mongo driver
