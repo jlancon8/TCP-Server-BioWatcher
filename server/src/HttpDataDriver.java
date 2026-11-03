@@ -1,8 +1,10 @@
 import org.bson.Document;
+
 import java.net.*;
 import java.net.http.*;
 import java.net.http.HttpResponse.*;
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 
@@ -31,14 +33,32 @@ public class HttpDataDriver implements DataDriver {
     private Document postRequest(String route, String payload) {
         Document doc = null;
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(apiURL+route))
+                .uri(URI.create(apiURL + route))
                 .header("Content-Type", "application/json")
-                .method("POST",HttpRequest.BodyPublishers.ofString(payload))
+                .method("POST", HttpRequest.BodyPublishers.ofString(payload))
                 .build();
         try {
             HttpResponse<String> response = client.send(request, BodyHandlers.ofString());
             System.out.println(response.body());
             // parse received JSON
+            doc = Document.parse(response.body());
+        } catch (InterruptedException e) {
+            return null;
+        } catch (IOException e) {
+            return null;
+        }
+        return doc;
+    }
+
+    private Document getRequest(String route) {
+        Document doc = null;
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(apiURL+route))
+                .GET()
+                .build();
+        try {
+            HttpResponse<String> response = client.send(request, BodyHandlers.ofString());
+            System.out.println(response.body());
             doc = Document.parse(response.body());
         }
         catch(InterruptedException e) {
@@ -51,15 +71,15 @@ public class HttpDataDriver implements DataDriver {
     }
 
     public synchronized String autoRegisterModule(String uc, List<String> chipsets) {
-        String payload = "{\"uc\": \""+uc+"\", \"chipsets\": [";
+        String payload = "{\"uc\": \"" + uc + "\", \"chipsets\": [";
         String name = "";
         String shortName = "";
         String key = "";
         int i = 0;
-        for(i=0;i<chipsets.size()-1;i++) {
-            payload += "\""+chipsets.get(i)+"\",";
+        for (i = 0; i < chipsets.size() - 1; i++) {
+            payload += "\"" + chipsets.get(i) + "\",";
         }
-        payload += "\""+chipsets.get(i)+"\"]}";
+        payload += "\"" + chipsets.get(i) + "\"]}";
 
         Document doc = postRequest("/module/register", payload);
         if (doc == null) {
@@ -69,22 +89,22 @@ public class HttpDataDriver implements DataDriver {
         String err = checkError(doc);
         if (err != null) return err;
         // if not, get desired field in data
-        Document data = (Document)doc.get("data");
+        Document data = (Document) doc.get("data");
         name = data.getString("name");
         shortName = data.getString("shortName");
         key = data.getString("key");
-        return "OK "+name+","+shortName+","+key;
+        return "OK " + name + "," + shortName + "," + key;
     }
 
-    public synchronized  String saveMeasure(String type, String date, String value, String moduleKey) {
+    public synchronized String saveMeasure(String type, String date, String value, String moduleKey) {
 
-        String payload = "{\"type\": \""+type+"\", \"date\": \""+date+"\", \"value\": \""+value+"\", \"moduleKey\": \""+moduleKey+"\"}";
+        String payload = "{\"type\": \"" + type + "\", \"date\": \"" + date + "\", \"value\": \"" + value + "\", \"moduleKey\": \"" + moduleKey + "\"}";
         return sendMeasure(payload);
     }
 
     public synchronized String saveAnalysis(String type, String date, String value) {
 
-        String payload = "{\"type\": \""+type+"\", \"date\": \""+date+"\", \"value\": \""+value+"\"}";
+        String payload = "{\"type\": \"" + type + "\", \"date\": \"" + date + "\", \"value\": \"" + value + "\"}";
         return sendMeasure(payload);
     }
 
@@ -96,5 +116,17 @@ public class HttpDataDriver implements DataDriver {
         String err = checkError(doc);
         if (err != null) return err;
         return "OK";
+    }
+
+    public synchronized String getConfig(String moduleKey) {
+        String key = URLEncoder.encode(moduleKey, StandardCharsets.UTF_8);
+        Document doc = getRequest("/module/config?key=" + key);
+        if (doc == null) {
+            return "ERR cannot join the API";
+        }
+        String err = checkError(doc);
+        if (err != null) return err;
+        Document data = (Document) doc.get("data");
+        return "OK " + data.getInteger("sendInterval");
     }
 }

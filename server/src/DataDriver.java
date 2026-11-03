@@ -11,4 +11,6 @@ public interface DataDriver {
     // register a module from its own request
     public String autoRegisterModule(String uc, List<String> chipsets);
 
+    public String getConfig(String moduleKey);
+
 }

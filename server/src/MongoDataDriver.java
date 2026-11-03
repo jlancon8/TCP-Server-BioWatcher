@@ -117,4 +117,16 @@ public class MongoDataDriver implements DataDriver {
         measures.insertOne(m);
         return "OK";
     }
+
+    public synchronized String getConfig(String moduleKey) {
+        Module module = modules.find(eq("key",moduleKey)).first();
+        if (module == null) {
+            return "ERR invalid module key";
+        }
+        Integer interval = module.getSendInterval();
+        if (interval == null) {
+            interval = 60;
+        }
+        return "OK "+interval;
+    }
 }

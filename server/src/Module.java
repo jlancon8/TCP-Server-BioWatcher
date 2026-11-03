@@ -9,6 +9,7 @@ public class Module {
     private String key;
     private String uc;
     private List<ObjectId> chipsets;
+    private int sendInterval = 60;
 
     public Module() {}
 
@@ -20,6 +21,13 @@ public class Module {
         this.chipsets = chipsets;
     }
 
+    public int getSendInterval() {
+        return sendInterval;
+    }
+
+    public void setSendInterval(int sendInterval) {
+        this.sendInterval = sendInterval;
+    }
     public ObjectId getId() {
         return id;
     }
