@@ -41,6 +41,7 @@ class ThreadServer extends Thread {
         try {
             while (true) {
                 req = br.readLine();
+                System.out.println("reçu: [" + req + "]");
                 if ((req == null) || (req.isEmpty())) {
                     break;
                 }

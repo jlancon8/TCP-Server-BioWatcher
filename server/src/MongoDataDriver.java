@@ -123,10 +123,6 @@ public class MongoDataDriver implements DataDriver {
         if (module == null) {
             return "ERR invalid module key";
         }
-        Integer interval = module.getSendInterval();
-        if (interval == null) {
-            interval = 60;
-        }
-        return "OK "+interval;
+        return "OK "+module.getSendInterval();
     }
 }

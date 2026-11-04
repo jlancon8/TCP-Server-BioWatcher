@@ -23,11 +23,11 @@ import java.time.LocalDateTime;
    server. For the latter, there is no key to provide.
 
    Examples based on the initial state of the DB (see db.init.js in the WeatherAPI project):
-   1 esp32 lm35 bme280
-   1 esp8266 lm35
-   2 temperature 23.1
-   2 pressure 1013
-   3 voltage 5
+   AUTOREGISTER esp32 lm35 bme280
+   AUTOREGISTER esp8266 lm35
+   STOREMEASURE temperature 23.1
+   STOREMEASURE pressure 1013
+   STOREANALYSIS voltage 5
  */
 
 class MainClient {
@@ -67,7 +67,10 @@ class MainClient {
                         requestStoreMeasure(parts[1], parts[2]);
                     } else if ("STOREANALYSIS".equals(parts[0]) && parts.length == 3) {
                         requestStoreAnalysis(parts[1], parts[2]);
-                    } else if (parts[0].equals("quit")) {
+                    } else if ("GETCONFIG".equals(parts[0]) && parts.length == 2) {
+                        requestGetConfig(parts[1]);
+                    }
+                    else if (parts[0].equals("quit")) {
                         stop = true;
                     } else if (parts[0].isEmpty()) {
                         System.out.println("ERR empty request");
@@ -116,6 +119,19 @@ class MainClient {
         answer = br.readLine();
         if (answer.startsWith("ERR")) {
             System.out.println("error with request store measure:" + answer);
+        } else {
+            System.out.println(answer);
+        }
+    }
+
+    protected void requestGetConfig(String key) throws IOException {
+        String answer = "";
+        String req = "GETCONFIG " + key;
+        System.out.println(req);
+        ps.println(req);
+        answer = br.readLine();
+        if (answer.startsWith("ERR")) {
+            System.out.println("error with request get config:" + answer);
         } else {
             System.out.println(answer);
         }
