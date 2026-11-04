@@ -23,11 +23,12 @@ import java.time.LocalDateTime;
    server. For the latter, there is no key to provide.
 
    Examples based on the initial state of the DB (see db.init.js in the WeatherAPI project):
-   AUTOREGISTER esp32 lm35 bme280
+   AUTOREGISTER esp32 lm35 bme280 --> register a new module with an esp32 µC and two chipsets (lm35 and bme280)
    AUTOREGISTER esp8266 lm35
-   STOREMEASURE temperature 23.1
-   STOREMEASURE pressure 1013
-   STOREANALYSIS voltage 5
+   STOREMEASURE temperature 23.1 58ae1d8f-027b-4061-a4c7-b37c3f8ed54e --> store a measure coming from the module with key 58ae1d8f-027b-4061-a4c7-b37c3f8ed54
+   STOREMEASURE humidity 2026-11-04T19:51:27 45.2 58ae1d8f-027b-4061-a4c7-b37c3f8ed54e --> store a measure with a given date
+   STOREANALYSIS voltage 5 --> store a voltage measure coming from the analysis server
+   GETCONFIG 58ae1d8f-027b-4061-a4c7-b37c3f8ed54 --> get the configuration of the module (interval to send measures) with the given key
  */
 
 class MainClient {
@@ -63,14 +64,17 @@ class MainClient {
                     if ("AUTOREGISTER".equals(parts[0]) && parts.length >= 2) { // those verifications are not mandatory, but they help to
                         // avoid getting errors while sending request like out-of-bounds exception
                         requestAutoRegister(parts);
-                    } else if ("STOREMEASURE".equals(parts[0]) && parts.length == 3) {
-                        requestStoreMeasure(parts[1], parts[2]);
+                    } else if ("STOREMEASURE".equals(parts[0]) && (parts.length == 4 || parts.length == 5)) {
+                        if (parts.length == 4) {
+                            requestStoreMeasure(parts[1], LocalDateTime.now().toString(), parts[2], parts[3]); // if no date is provided, use current date
+                        } else {
+                            requestStoreMeasure(parts[1], parts[2], parts[3], parts[4]); // otherwise, use the provided date
+                        }
                     } else if ("STOREANALYSIS".equals(parts[0]) && parts.length == 3) {
                         requestStoreAnalysis(parts[1], parts[2]);
                     } else if ("GETCONFIG".equals(parts[0]) && parts.length == 2) {
                         requestGetConfig(parts[1]);
-                    }
-                    else if (parts[0].equals("quit")) {
+                    } else if (parts[0].equals("quit")) {
                         stop = true;
                     } else if (parts[0].isEmpty()) {
                         System.out.println("ERR empty request");
@@ -97,13 +101,11 @@ class MainClient {
         System.out.println(answer);
     }
 
-    protected void requestStoreMeasure(String type, String value) throws IOException {
-        String moduleKey = "2e46990d-3e85-45f8-82c8-f05eec1a1212";
-        String answer = "";
-        String req = "STOREMEASURE " + type + " " + LocalDateTime.now() + " " + value + " " + moduleKey;
+    protected void requestStoreMeasure(String type, String date, String value, String moduleKey) throws IOException {
+        String req = "STOREMEASURE " + type + " " + date + " " + value + " " + moduleKey;
         System.out.println(req);
         ps.println(req);
-        answer = br.readLine();
+        String answer = br.readLine();
         if (answer.startsWith("ERR")) {
             System.out.println("error with request store measure:" + answer);
         } else {

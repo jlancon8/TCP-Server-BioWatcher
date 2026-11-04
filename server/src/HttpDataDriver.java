@@ -97,7 +97,7 @@ public class HttpDataDriver implements DataDriver {
     }
 
     public synchronized String saveMeasure(String type, String date, String value, String moduleKey) {
-
+        System.out.println("saveMeasure: type=" + type + ", date=" + date + ", value=" + value + ", moduleKey=" + moduleKey);
         String payload = "{\"type\": \"" + type + "\", \"date\": \"" + date + "\", \"value\": \"" + value + "\", \"moduleKey\": \"" + moduleKey + "\"}";
         return sendMeasure(payload);
     }
