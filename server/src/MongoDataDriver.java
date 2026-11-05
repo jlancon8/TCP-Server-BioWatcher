@@ -73,7 +73,7 @@ public class MongoDataDriver implements DataDriver {
         return null;
     }
 
-    public synchronized  String autoRegisterModule(String uc, List<String> chipsets) {
+    public synchronized String autoRegisterModule(String uc, List<String> chipsets, double longitude, double latitude) {
         List<ObjectId> lst = new ArrayList<>();
         for(String chipset : chipsets) {
             ObjectId id = getChipsetId(chipset);

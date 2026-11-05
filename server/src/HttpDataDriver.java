@@ -53,46 +53,50 @@ public class HttpDataDriver implements DataDriver {
     private Document getRequest(String route) {
         Document doc = null;
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(apiURL+route))
+                .uri(URI.create(apiURL + route))
                 .GET()
                 .build();
         try {
             HttpResponse<String> response = client.send(request, BodyHandlers.ofString());
             System.out.println(response.body());
             doc = Document.parse(response.body());
-        }
-        catch(InterruptedException e) {
+        } catch (InterruptedException e) {
             return null;
-        }
-        catch(IOException e) {
+        } catch (IOException e) {
             return null;
         }
         return doc;
     }
 
-    public synchronized String autoRegisterModule(String uc, List<String> chipsets) {
+    public synchronized String autoRegisterModule(String uc, List<String> chipsets, double longitude, double latitude) {
+
         String payload = "{\"uc\": \"" + uc + "\", \"chipsets\": [";
-        String name = "";
-        String shortName = "";
-        String key = "";
-        int i = 0;
-        for (i = 0; i < chipsets.size() - 1; i++) {
-            payload += "\"" + chipsets.get(i) + "\",";
+
+        for (int i = 0; i < chipsets.size(); i++) {
+            if (i > 0) payload += ",";
+            payload += "\"" + chipsets.get(i) + "\"";
         }
-        payload += "\"" + chipsets.get(i) + "\"]}";
+
+        payload += "], \"position\": {";
+        payload += "\"type\": \"Point\",";
+        payload += "\"coordinates\": [" + longitude + "," + latitude + "]";
+        payload += "}}";
 
         Document doc = postRequest("/module/register", payload);
+
         if (doc == null) {
             return "ERR cannot join the API";
         }
-        // if error
+
         String err = checkError(doc);
         if (err != null) return err;
-        // if not, get desired field in data
+
         Document data = (Document) doc.get("data");
-        name = data.getString("name");
-        shortName = data.getString("shortName");
-        key = data.getString("key");
+
+        String name = data.getString("name");
+        String shortName = data.getString("shortName");
+        String key = data.getString("key");
+
         return "OK " + name + "," + shortName + "," + key;
     }
 

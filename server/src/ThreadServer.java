@@ -68,19 +68,45 @@ class ThreadServer extends Thread {
     }
 
     protected void requestAutoRegister(String[] params) throws IOException {
-        // remove the identifier+uc from params
-        List<String> lst = new ArrayList<>();
-        for (int i = 2; i < params.length; i++) {
-            lst.add(params[i]);
-        }
+
         System.out.println("processing request AUTO REGISTER");
-        if (params.length < 3) {
+
+        if (params.length < 5) {
             ps.println("ERR invalid number of parameters");
             return;
         }
-        // (un)comment to choose direct mongo access or through the node API
-        //String answer = exchanger.getMongoDriver().autoRegisterModule(params[1], lst);
-        String answer = exchanger.getHttpDriver().autoRegisterModule(params[1], lst);
+
+        List<String> lst = new ArrayList<>();
+
+        for (int i = 2; i < params.length - 2; i++) {
+            lst.add(params[i]);
+        }
+
+        double longitude;
+        double latitude;
+
+        try {
+            longitude = Double.parseDouble(params[params.length - 2]);
+            latitude = Double.parseDouble(params[params.length - 1]);
+            System.out.println("UC : " + params[1]);
+            System.out.println("CHIPSETS : " + lst);
+            System.out.println("LONGITUDE : " + longitude);
+            System.out.println("LATITUDE : " + latitude);
+
+            if (longitude < -180 || longitude > 180 ||
+                    latitude < -90 || latitude > 90) {
+                ps.println("ERR coordinates out of range");
+                return;
+            }
+
+        } catch (NumberFormatException e) {
+            ps.println("ERR invalid coordinates");
+            return;
+        }
+
+        String answer = exchanger.getHttpDriver()
+                .autoRegisterModule(params[1], lst, longitude, latitude);
+
         System.out.println(answer);
         ps.println(answer);
     }
