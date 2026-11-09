@@ -82,7 +82,7 @@ public class HttpDataDriver implements DataDriver {
         payload += "\"coordinates\": [" + longitude + "," + latitude + "]";
         payload += "}}";
 
-        Document doc = postRequest("/module/register", payload);
+        Document doc = postRequest("/modules/register", payload);
 
         if (doc == null) {
             return "ERR cannot join the API";
@@ -113,7 +113,7 @@ public class HttpDataDriver implements DataDriver {
     }
 
     private String sendMeasure(String payload) {
-        Document doc = postRequest("/measure/create", payload);
+        Document doc = postRequest("/measures", payload);
         if (doc == null) {
             return "ERR cannot join the API";
         }
@@ -124,7 +124,7 @@ public class HttpDataDriver implements DataDriver {
 
     public synchronized String getConfig(String moduleKey) {
         String key = URLEncoder.encode(moduleKey, StandardCharsets.UTF_8);
-        Document doc = getRequest("/module/config?key=" + key);
+        Document doc = getRequest("/modules/config?key=" + key);
         if (doc == null) {
             return "ERR cannot join the API";
         }
