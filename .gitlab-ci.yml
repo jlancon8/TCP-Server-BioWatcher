@@ -1,0 +1,300 @@
+# =====================================================================
+#  BioWatcher - serveur TCP de centralisation : pipeline GitLab CI/CD
+# =====================================================================
+#
+#  build ──> test ──> package ──> integration ──> docs ──> deploy ──> release
+#
+#  Variables CI/CD optionnelles (Settings > CI/CD > Variables) :
+#    INTEGRATION_PROJECT : chemin d'un autre projet à déclencher après un push
+#                          sur main (ex. biowatcher/api), pour qu'il se reteste
+#                          avec la nouvelle image du serveur TCP.
+#    API_IMAGE           : image Docker de l'API Node. Si elle est définie (ici ou
+#                          par un pipeline amont), le job e2e-full lance MongoDB +
+#                          l'API + le serveur TCP et teste toute la chaîne.
+#    API_PORT            : port de l'API dans son conteneur (défaut 4567).
+#
+#  Release : pousser un tag de la forme vX.Y.Z (ex. v1.0.0).
+# =====================================================================
+
+stages:
+  - build
+  - test
+  - package
+  - integration
+  - docs
+  - deploy
+  - release
+
+workflow:
+  rules:
+    # pas de double pipeline branche + merge request
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS && $CI_PIPELINE_SOURCE == "push"
+      when: never
+    - when: always
+
+variables:
+  MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+  MAVEN_CLI_OPTS: "-B --no-transfer-progress"
+  MAVEN_IMAGE: "maven:3.9-eclipse-temurin-21"
+  API_PORT: "4567"
+
+# ---------------------------------------------------------------------
+# Modèles
+# ---------------------------------------------------------------------
+.version: &version
+  # tag v1.2.3 -> 1.2.3 ; sinon 0.1.0-<sha court>
+  - export VERSION="${CI_COMMIT_TAG#v}"
+  - if [ -z "$VERSION" ]; then export VERSION="0.1.0-${CI_COMMIT_SHORT_SHA}"; fi
+  - echo "version = $VERSION"
+
+.maven:
+  image: $MAVEN_IMAGE
+  cache:
+    key:
+      files: [pom.xml, server/pom.xml, client/pom.xml]
+    paths: [.m2/repository]
+  before_script:
+    - *version
+
+.on_main_or_tag:
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+.release_tag:
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+
+# ---------------------------------------------------------------------
+# build
+# ---------------------------------------------------------------------
+compile:
+  extends: .maven
+  stage: build
+  script:
+    - mvn $MAVEN_CLI_OPTS -Drevision=$VERSION compile
+
+# ---------------------------------------------------------------------
+# test : tests unitaires (aucune dépendance externe)
+# ---------------------------------------------------------------------
+unit-tests:
+  extends: .maven
+  stage: test
+  needs: [compile]
+  script:
+    - mvn $MAVEN_CLI_OPTS -Drevision=$VERSION test
+  artifacts:
+    when: always
+    reports:
+      junit: server/target/surefire-reports/TEST-*.xml
+    paths: [server/target/surefire-reports/]
+    expire_in: 1 week
+
+# ---------------------------------------------------------------------
+# package : jars téléchargeables dans les artefacts du job
+# ---------------------------------------------------------------------
+package:
+  extends: .maven
+  stage: package
+  needs: [unit-tests]
+  script:
+    - mvn $MAVEN_CLI_OPTS -Drevision=$VERSION -DskipTests package
+    - mkdir -p dist
+    - cp server/target/biowatcher-tcp-server-$VERSION.jar client/target/biowatcher-tcp-client-$VERSION.jar dist/
+    - echo "$VERSION" > dist/VERSION
+    - ls -l dist
+  artifacts:
+    name: "biowatcher-tcp-$CI_COMMIT_REF_SLUG-$CI_COMMIT_SHORT_SHA"
+    paths: [dist/]
+    expire_in: 30 days
+
+# ---------------------------------------------------------------------
+# integration
+# ---------------------------------------------------------------------
+# Tests JUnit *IT contre un vrai MongoDB
+integration-tests:
+  extends: .maven
+  stage: integration
+  needs: [unit-tests]
+  services:
+    - name: mongo:7
+      alias: mongo
+  variables:
+    MONGO_URL: "mongodb://mongo:27017"
+  script:
+    - mvn $MAVEN_CLI_OPTS -Drevision=$VERSION verify
+  artifacts:
+    when: always
+    reports:
+      junit:
+        - server/target/surefire-reports/TEST-*.xml
+        - server/target/failsafe-reports/TEST-*.xml
+
+# Le jar construit est lancé et piloté en TCP comme le ferait un µC.
+# Le serveur cherche MongoDB/l'API sur localhost : socat redirige vers les services.
+.e2e:
+  image: eclipse-temurin:21-jdk
+  stage: integration
+  needs: [package]
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq socat curl > /dev/null
+    - socat TCP-LISTEN:27017,fork,reuseaddr TCP:mongo:27017 &
+  artifacts:
+    when: always
+    paths: [server.log]
+    expire_in: 1 week
+
+e2e-smoke:
+  extends: .e2e
+  services:
+    - name: mongo:7
+      alias: mongo
+  script:
+    - ci/smoke-test.sh dist/biowatcher-tcp-server-*.jar 5000
+
+# Déploiement des autres composants (MongoDB + API Node) pour tester l'ensemble.
+# Actif dès que API_IMAGE est défini (variable du projet ou pipeline amont).
+e2e-full:
+  extends: .e2e
+  rules:
+    - if: $API_IMAGE
+  variables:
+    FF_NETWORK_PER_BUILD: "true"   # les services se voient entre eux (api -> mongo)
+    # variables transmises au conteneur de l'API : adapter aux noms utilisés par l'API
+    MONGO_URL: "mongodb://mongo:27017/weatherapi"
+    MONGODB_URI: "mongodb://mongo:27017/weatherapi"
+    PORT: "$API_PORT"
+  services:
+    - name: mongo:7
+      alias: mongo
+    - name: $API_IMAGE
+      alias: api
+  script:
+    - socat TCP-LISTEN:4567,fork,reuseaddr TCP:api:$API_PORT &
+    - |
+      for i in $(seq 1 60); do
+        curl -s -o /dev/null http://localhost:4567/ && break
+        echo "attente de l'API ($i)..."; sleep 2
+      done
+    - WITH_API=true ci/smoke-test.sh dist/biowatcher-tcp-server-*.jar 5000
+
+# ---------------------------------------------------------------------
+# docs
+# ---------------------------------------------------------------------
+javadoc:
+  extends: .maven
+  stage: docs
+  needs: [compile]
+  script:
+    - mvn $MAVEN_CLI_OPTS -Drevision=$VERSION javadoc:aggregate
+  artifacts:
+    paths: [target/reports/apidocs/]
+    expire_in: 30 days
+
+# ---------------------------------------------------------------------
+# deploy
+# ---------------------------------------------------------------------
+# Page GitLab : téléchargement des jars + Javadoc
+pages:
+  stage: deploy
+  image: alpine:3.20
+  extends: .on_main_or_tag
+  needs: [package, javadoc, integration-tests, e2e-smoke]
+  variables:
+    COMMIT_SHA: $CI_COMMIT_SHORT_SHA
+    REPO_URL: $CI_PROJECT_URL
+    PIPELINE_URL: $CI_PIPELINE_URL
+  script:
+    - export VERSION=$(cat dist/VERSION)
+    - sh ci/build-pages.sh
+  artifacts:
+    paths: [public]
+  environment:
+    name: pages
+    url: $CI_PAGES_URL
+
+# Image Docker publiée dans le registre du projet (utilisable par les autres composants).
+# Nécessite un runner autorisant docker-in-docker (privileged).
+docker-image:
+  stage: deploy
+  image: docker:27
+  services: [docker:27-dind]
+  extends: .on_main_or_tag
+  needs: [unit-tests, integration-tests]
+  allow_failure: true
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker build -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" .
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        docker tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" "$CI_REGISTRY_IMAGE:$CI_COMMIT_TAG"
+        docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_TAG"
+      else
+        docker tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" "$CI_REGISTRY_IMAGE:latest"
+        docker push "$CI_REGISTRY_IMAGE:latest"
+      fi
+
+# Multi-projets : après un push sur main, on relance le pipeline d'un autre
+# composant en lui passant l'image du serveur TCP qu'on vient de construire.
+# (jamais quand ce pipeline a lui-même été déclenché par un autre, pour éviter les boucles)
+trigger-integration:
+  stage: deploy
+  needs: [docker-image]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "pipeline"
+      when: never
+    - if: $INTEGRATION_PROJECT && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  variables:
+    UPSTREAM_COMPONENT: "tcp-server"
+    TCP_SERVER_IMAGE: "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+  trigger:
+    project: $INTEGRATION_PROJECT
+    branch: main
+    strategy: depend
+
+# ---------------------------------------------------------------------
+# release : uniquement sur un tag vX.Y.Z
+# ---------------------------------------------------------------------
+upload-release-assets:
+  stage: release
+  image: curlimages/curl:8.10.1
+  extends: .release_tag
+  needs: [package, integration-tests, e2e-smoke]
+  variables:
+    PACKAGE_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/biowatcher-tcp/${CI_COMMIT_TAG}"
+  script:
+    - |
+      V=$(cat dist/VERSION)
+      for kind in server client; do
+        curl --fail-with-body --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+             --upload-file "dist/biowatcher-tcp-$kind-$V.jar" \
+             "$PACKAGE_URL/biowatcher-tcp-$kind-$CI_COMMIT_TAG.jar"
+      done
+
+release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  extends: .release_tag
+  needs: [upload-release-assets]
+  variables:
+    PACKAGE_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/biowatcher-tcp/${CI_COMMIT_TAG}"
+  script:
+    - echo "création de la release $CI_COMMIT_TAG"
+  release:
+    tag_name: $CI_COMMIT_TAG
+    name: "BioWatcher TCP $CI_COMMIT_TAG"
+    description: "Serveur TCP de centralisation BioWatcher $CI_COMMIT_TAG. Documentation : $CI_PAGES_URL"
+    assets:
+      links:
+        - name: "biowatcher-tcp-server-$CI_COMMIT_TAG.jar"
+          url: "$PACKAGE_URL/biowatcher-tcp-server-$CI_COMMIT_TAG.jar"
+          link_type: package
+        - name: "biowatcher-tcp-client-$CI_COMMIT_TAG.jar"
+          url: "$PACKAGE_URL/biowatcher-tcp-client-$CI_COMMIT_TAG.jar"
+          link_type: package
+        - name: "Javadoc"
+          url: "$CI_PAGES_URL/javadoc/"
+          link_type: other

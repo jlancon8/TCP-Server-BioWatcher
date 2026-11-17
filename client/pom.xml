@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>fr.iutbm.biowatcher</groupId>
+        <artifactId>biowatcher-tcp</artifactId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>biowatcher-tcp-client</artifactId>
+    <name>BioWatcher - client de test</name>
+
+    <build>
+        <sourceDirectory>src</sourceDirectory>
+        <finalName>biowatcher-tcp-client-${project.version}</finalName>
+        <plugins>
+            <plugin>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <mainClass>BioWatcherClient</mainClass>
+                        </manifest>
+                        <manifestEntries>
+                            <Implementation-Version>${project.version}</Implementation-Version>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

@@ -1,0 +1,284 @@
+# =====================================================================
+#  BioWatcher - serveur TCP de centralisation : GitHub Actions
+#  (miroir du pipeline .gitlab-ci.yml)
+# =====================================================================
+#
+#  Variables du dépôt (Settings > Secrets and variables > Actions > Variables) :
+#    API_IMAGE         : image Docker de l'API Node -> active le test de bout en bout complet
+#    API_PORT          : port de l'API dans son conteneur (défaut 4567)
+#    DOWNSTREAM_REPOS  : dépôts à prévenir après un push sur main, séparés par des espaces
+#                        (ex. "monorg/api monorg/analysis-server")
+#  Secret :
+#    COMPONENTS_TOKEN  : PAT ayant le droit "repository_dispatch" sur DOWNSTREAM_REPOS
+#
+#  Release : pousser un tag vX.Y.Z.
+#  Pages   : Settings > Pages > Source = "GitHub Actions".
+# =====================================================================
+
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      api_image:
+        description: "Image de l'API Node à tester avec ce serveur (optionnel)"
+        required: false
+  # un autre composant a changé -> on se reteste avec sa nouvelle version
+  repository_dispatch:
+    types: [component-updated]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  MAVEN_CLI_OPTS: -B --no-transfer-progress
+
+jobs:
+  # -------------------------------------------------------------------
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then V="${GITHUB_REF_NAME#v}"; else V="0.1.0-${GITHUB_SHA::8}"; fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "version = $V"
+
+  # -------------------------------------------------------------------
+  build:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "21", cache: maven }
+      - run: mvn $MAVEN_CLI_OPTS -Drevision=${{ needs.version.outputs.version }} compile
+
+  # -------------------------------------------------------------------
+  unit-tests:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "21", cache: maven }
+      - run: mvn $MAVEN_CLI_OPTS -Drevision=${{ needs.version.outputs.version }} test
+      - name: Résumé des tests
+        if: always()
+        run: |
+          echo "### Tests unitaires" >> "$GITHUB_STEP_SUMMARY"
+          grep -h "Tests run" server/target/surefire-reports/*.txt | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-reports
+          path: server/target/surefire-reports/
+
+  # -------------------------------------------------------------------
+  package:
+    needs: [version, unit-tests]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "21", cache: maven }
+      - run: mvn $MAVEN_CLI_OPTS -Drevision=$VERSION -DskipTests package
+      - run: |
+          mkdir -p dist
+          cp server/target/biowatcher-tcp-server-$VERSION.jar client/target/biowatcher-tcp-client-$VERSION.jar dist/
+          echo "$VERSION" > dist/VERSION
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: biowatcher-tcp-${{ needs.version.outputs.version }}
+          path: dist/
+          retention-days: 30
+
+  # -------------------------------------------------------------------
+  integration-tests:
+    needs: [version, unit-tests]
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:7
+        ports: ["27017:27017"]
+    env:
+      MONGO_URL: mongodb://localhost:27017
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "21", cache: maven }
+      - run: mvn $MAVEN_CLI_OPTS -Drevision=${{ needs.version.outputs.version }} verify
+      - name: Résumé des tests
+        if: always()
+        run: |
+          echo "### Tests d'intégration (MongoDB)" >> "$GITHUB_STEP_SUMMARY"
+          grep -h "Tests run" server/target/failsafe-reports/*.txt | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-reports
+          path: server/target/failsafe-reports/
+
+  # -------------------------------------------------------------------
+  # Le jar construit est lancé et piloté en TCP comme un µC.
+  # Si une image d'API est fournie, MongoDB + API + serveur TCP sont déployés ensemble.
+  e2e:
+    needs: [version, package]
+    runs-on: ubuntu-latest
+    env:
+      API_IMAGE: ${{ inputs.api_image || github.event.client_payload.api_image || vars.API_IMAGE }}
+    services:
+      mongo:
+        image: mongo:7
+        ports: ["27017:27017"]
+      api:
+        # chaîne vide => service non démarré
+        image: ${{ inputs.api_image || github.event.client_payload.api_image || vars.API_IMAGE || '' }}
+        ports: ["4567:${{ vars.API_PORT || '4567' }}"]
+        env:
+          # adapter aux noms de variables utilisés par l'API
+          MONGO_URL: mongodb://mongo:27017/weatherapi
+          MONGODB_URI: mongodb://mongo:27017/weatherapi
+          PORT: ${{ vars.API_PORT || '4567' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "21" }
+      - uses: actions/download-artifact@v4
+        with:
+          name: biowatcher-tcp-${{ needs.version.outputs.version }}
+          path: dist
+      - name: Attente de l'API
+        if: env.API_IMAGE != ''
+        run: |
+          for i in $(seq 1 60); do
+            curl -s -o /dev/null http://localhost:4567/ && exit 0
+            echo "attente de l'API ($i)..."; sleep 2
+          done
+          echo "API injoignable"; exit 1
+      - name: Smoke test TCP
+        run: |
+          if [ -n "$API_IMAGE" ]; then export WITH_API=true; fi
+          ci/smoke-test.sh dist/biowatcher-tcp-server-*.jar 5000
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-server-log
+          path: server.log
+
+  # -------------------------------------------------------------------
+  javadoc:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "21", cache: maven }
+      - run: mvn $MAVEN_CLI_OPTS -Drevision=${{ needs.version.outputs.version }} javadoc:aggregate
+      - uses: actions/upload-artifact@v4
+        with:
+          name: javadoc
+          path: target/reports/apidocs/
+
+  # -------------------------------------------------------------------
+  # Image Docker publiée sur ghcr.io
+  docker-image:
+    if: github.event_name == 'push'
+    needs: [unit-tests, integration-tests]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          docker build -t "$IMAGE:${GITHUB_SHA::8}" .
+          docker push "$IMAGE:${GITHUB_SHA::8}"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then TAG="$GITHUB_REF_NAME"; else TAG=latest; fi
+          docker tag "$IMAGE:${GITHUB_SHA::8}" "$IMAGE:$TAG"
+          docker push "$IMAGE:$TAG"
+
+  # -------------------------------------------------------------------
+  # Page GitHub Pages : téléchargements + Javadoc
+  pages:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [version, package, javadoc, integration-tests, e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: "biowatcher-tcp-${{ needs.version.outputs.version }}", path: dist }
+      - uses: actions/download-artifact@v4
+        with: { name: javadoc, path: target/reports/apidocs }
+      - run: sh ci/build-pages.sh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          COMMIT_SHA: ${{ github.sha }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          PIPELINE_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: public }
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+  # -------------------------------------------------------------------
+  # Release : uniquement sur un tag vX.Y.Z, si tous les tests sont verts
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [version, package, integration-tests, e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Vérification du format du tag
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "tag $GITHUB_REF_NAME ignoré (attendu vX.Y.Z)"; exit 1; }
+      - uses: actions/download-artifact@v4
+        with: { name: "biowatcher-tcp-${{ needs.version.outputs.version }}", path: dist }
+      - run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.jar \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "BioWatcher TCP $GITHUB_REF_NAME" \
+            --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # -------------------------------------------------------------------
+  # Multi-dépôts : prévient les autres composants qu'une nouvelle image du serveur TCP existe
+  notify-components:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DOWNSTREAM_REPOS != ''
+    needs: [docker-image]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.COMPONENTS_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then echo "secret COMPONENTS_TOKEN absent, rien à faire"; exit 0; fi
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA::8}"
+          for repo in ${{ vars.DOWNSTREAM_REPOS }}; do
+            echo "-> $repo"
+            gh api "repos/$repo/dispatches" -f event_type=component-updated \
+              -F "client_payload[component]=tcp-server" -F "client_payload[tcp_server_image]=$IMAGE"
+          done
