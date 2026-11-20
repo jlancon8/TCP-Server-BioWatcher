@@ -1,7 +1,3 @@
-/**
- * DataExchanger dont les drivers sont remplacés (le code de production n'est pas modifié :
- * on surcharge simplement les getters).
- */
 class TestExchanger extends DataExchanger {
 
     private final DataDriver http;

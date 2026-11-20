@@ -1,7 +1,6 @@
 import java.util.ArrayList;
 import java.util.List;
 
-/** Driver factice : enregistre les appels et renvoie une réponse configurable. */
 class FakeDataDriver implements DataDriver {
 
     final List<String> calls = new ArrayList<>();

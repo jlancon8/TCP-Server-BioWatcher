@@ -51,7 +51,8 @@ variables:
   image: $MAVEN_IMAGE
   cache:
     key:
-      files: [pom.xml, server/pom.xml, client/pom.xml]
+      # gitlab limite key:files à 2 fichiers
+      files: [pom.xml, server/pom.xml]
     paths: [.m2/repository]
   before_script:
     - *version
@@ -75,7 +76,7 @@ compile:
     - mvn $MAVEN_CLI_OPTS -Drevision=$VERSION compile
 
 # ---------------------------------------------------------------------
-# test : tests unitaires (aucune dépendance externe)
+# test : tests d'acceptance Cucumber (les scénarios @mongo sont ignorés sans MONGO_URL)
 # ---------------------------------------------------------------------
 unit-tests:
   extends: .maven
@@ -111,7 +112,7 @@ package:
 # ---------------------------------------------------------------------
 # integration
 # ---------------------------------------------------------------------
-# Tests JUnit *IT contre un vrai MongoDB
+# mêmes tests d'acceptance, avec un vrai MongoDB : les scénarios @mongo s'exécutent
 integration-tests:
   extends: .maven
   stage: integration
@@ -126,9 +127,7 @@ integration-tests:
   artifacts:
     when: always
     reports:
-      junit:
-        - server/target/surefire-reports/TEST-*.xml
-        - server/target/failsafe-reports/TEST-*.xml
+      junit: server/target/surefire-reports/TEST-*.xml
 
 # Le jar construit est lancé et piloté en TCP comme le ferait un µC.
 # Le serveur cherche MongoDB/l'API sur localhost : socat redirige vers les services.
