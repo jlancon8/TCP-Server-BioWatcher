@@ -5,6 +5,12 @@ Les jars Mongo (`mongodb-driver-sync`, `bson`, `mongodb-driver-core`) sont dans 
 
 ### Depuis la racine du projet
 
+##### (Clé en mode développement)
+
+```bash
+$env:BIOWATCHER_API_KEY="biowatcher_secret_123"
+```
+
 ## Compiler le serveur
 
 ```bash

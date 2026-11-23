@@ -12,10 +12,13 @@ public class HttpDataDriver implements DataDriver {
 
     private HttpClient client;
     private String apiURL;
+    private String serviceSecret;
 
     public HttpDataDriver(String apiURL) {
         this.apiURL = apiURL;
         client = HttpClient.newHttpClient();
+        this.serviceSecret = System.getenv("BIOWATCHER_API_KEY");
+        System.out.println(serviceSecret);
     }
 
     public boolean init() {
@@ -31,23 +34,34 @@ public class HttpDataDriver implements DataDriver {
     }
 
     private Document postRequest(String route, String payload) {
-        Document doc = null;
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(apiURL + route))
-                .header("Content-Type", "application/json")
-                .method("POST", HttpRequest.BodyPublishers.ofString(payload))
-                .build();
-        try {
-            HttpResponse<String> response = client.send(request, BodyHandlers.ofString());
-            System.out.println(response.body());
-            // parse received JSON
-            doc = Document.parse(response.body());
-        } catch (InterruptedException e) {
-            return null;
-        } catch (IOException e) {
+
+        if (serviceSecret == null || serviceSecret.isBlank()) {
+            System.err.println("BIOWATCHER_API_KEY is not configured");
             return null;
         }
-        return doc;
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(this.apiURL + route))
+                .header("Content-Type", "application/json")
+                .header("X-API-KEY", serviceSecret)
+                .POST(HttpRequest.BodyPublishers.ofString(payload))
+                .build();
+
+        try {
+            HttpResponse<String> response =
+                    client.send(request, BodyHandlers.ofString());
+
+            System.out.println(response.body());
+
+            return Document.parse(response.body());
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+
+        } catch (IOException | org.bson.json.JsonParseException e) {
+            return null;
+        }
     }
 
     private Document getRequest(String route) {
